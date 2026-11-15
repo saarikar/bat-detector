@@ -9,9 +9,7 @@ meets the ball. The project has three parts:
    the ball, and annotate the impact frame.
 3. **A Gemini-only detector** (`cricket_gemini.py`) that sends video chunks straight to the Gemini API.
 
-> **Status: baseline.** The included `best.pt` was trained on a small dataset (about 70 training frames,
-> labelled by Gemini and not fully reviewed). It misses bats and can fire on the scoreboard. Impact timing
-> depends on ball detection, which is currently the weakest part. See [Known limitations](#known-limitations).
+
 
 ---
 
