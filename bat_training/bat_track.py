@@ -28,17 +28,33 @@ COCO_BALL = 32
 
 
 # ---------------------------------------------------------------- pass 1
-def detect(video, bat_model, ball_model, imgsz, bat_conf, ball_conf):
+def plausible_bat(d, w, h, ignore_bottom, min_aspect, max_area):
+    """Reject boxes that cannot be a bat: scoreboard strip, too square, or too large."""
+    x1, y1, x2, y2, _ = d
+    bw, bh = x2 - x1, y2 - y1
+    if bw <= 0 or bh <= 0:
+        return False
+    if (y1 + y2) / 2 > h * (1 - ignore_bottom):  # centre inside the bottom (scoreboard) strip
+        return False
+    if max(bw, bh) / min(bw, bh) < min_aspect:  # a bat is long and thin
+        return False
+    return bw * bh <= max_area * w * h
+
+
+def detect(video, bat_model, ball_model, imgsz, bat_conf, ball_conf,
+           ignore_bottom=0.12, min_aspect=1.5, max_area=0.10, bat_class=None):
     bm, lm = YOLO(bat_model), YOLO(ball_model)
     cap = cv2.VideoCapture(str(video))
     n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fw, fh = int(cap.get(3)), int(cap.get(4))
     bats, balls, i = [], [], 0  # per frame: list of (x1,y1,x2,y2,conf) | list of (cx,cy,conf)
     while True:
         ok, frame = cap.read()
         if not ok:
             break
-        r = bm.predict(frame, imgsz=imgsz, conf=bat_conf, verbose=False)[0]
-        bats.append([(*b.xyxy[0].tolist(), float(b.conf)) for b in r.boxes])
+        r = bm.predict(frame, imgsz=imgsz, conf=bat_conf, classes=bat_class, verbose=False)[0]
+        dets = [(*b.xyxy[0].tolist(), float(b.conf)) for b in r.boxes]
+        bats.append([d for d in dets if plausible_bat(d, fw, fh, ignore_bottom, min_aspect, max_area)])
         r = lm.predict(frame, imgsz=imgsz, conf=ball_conf, classes=[COCO_BALL], verbose=False)[0]
         fb = []
         for b in r.boxes:
@@ -220,7 +236,13 @@ def main():
     ap.add_argument("--bat-model", default="runs/bat/weights/best.pt")
     ap.add_argument("--ball-model", default="yolov8m.pt", help="COCO model used for the ball")
     ap.add_argument("--imgsz", type=int, default=1280)
-    ap.add_argument("--bat-conf", type=float, default=0.15, help="low on purpose; gaps are filled, not discarded")
+    ap.add_argument("--bat-conf", type=float, default=0.4, help="min confidence for a bat detection")
+    ap.add_argument("--bat-class", type=int, nargs="+", default=None,
+                    help="class id(s) of the bat in the bat model (old model: 1). Default: all classes")
+    ap.add_argument("--ignore-bottom", type=float, default=0.12,
+                    help="ignore bat boxes centred in the bottom fraction of the frame (scoreboard)")
+    ap.add_argument("--min-aspect", type=float, default=1.5, help="min long/short side ratio of a bat box")
+    ap.add_argument("--max-area", type=float, default=0.10, help="max bat box area as fraction of the frame")
     ap.add_argument("--ball-conf", type=float, default=0.10)
     ap.add_argument("--max-gap", type=int, default=15, help="interpolate bat over gaps up to this many frames")
     ap.add_argument("--freeze", type=int, default=12, help="extra frames the impact frame is held for")
@@ -241,7 +263,8 @@ def main():
     diag = math.hypot(w, h)
 
     print("Pass 1/3: detecting bat and ball")
-    bats, balls = detect(video, a.bat_model, a.ball_model, a.imgsz, a.bat_conf, a.ball_conf)
+    bats, balls = detect(video, a.bat_model, a.ball_model, a.imgsz, a.bat_conf, a.ball_conf,
+                         a.ignore_bottom, a.min_aspect, a.max_area, a.bat_class)
 
     print("Pass 2/3: tracking bat, ball and finding impact")
     bat_boxes, detected = fill_and_smooth(pick_bat(bats), max_gap=a.max_gap)
