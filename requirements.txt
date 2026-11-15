@@ -1,0 +1,6 @@
+pyyaml
+ultralytics
+opencv-python
+numpy
+google-genai
+pydantic

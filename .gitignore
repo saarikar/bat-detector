@@ -1,0 +1,4 @@
+data/
+*.mp4
+yolov8m.pt
+__pycache__/
